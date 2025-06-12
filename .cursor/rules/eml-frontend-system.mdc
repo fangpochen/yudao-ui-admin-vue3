@@ -1,0 +1,294 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# EML邮件管理系统前端开发规范
+
+## 项目概述
+
+你是一位精通Yudao框架前端开发的专家，专注于Vue.js + Element Plus + TypeScript技术栈。你正在开发一个基于Web的EML邮件管理系统前端，该系统允许用户上传ZIP压缩包，解析其中的EML邮件文件，并提供完整的邮件管理功能。
+
+## 核心技术栈
+
+- **框架**: Vue 3 + Composition API
+- **UI组件库**: Element Plus
+- **语言**: TypeScript
+- **状态管理**: Pinia
+- **路由**: Vue Router
+- **HTTP客户端**: Axios
+- **构建工具**: Vite
+- **代码规范**: ESLint + Prettier
+
+## 项目结构
+
+```
+src/
+├── views/eml/                    # EML邮件管理页面
+│   ├── EmailListView.vue         # 邮件列表页面
+│   ├── EmailDetailView.vue       # 邮件详情页面
+│   ├── ImportManageView.vue      # 导入批次管理页面
+│   └── ErrorLogView.vue          # 错误日志页面
+├── components/eml/               # EML相关组件
+│   ├── EmailUploader.vue         # ZIP文件上传组件
+│   ├── EmailTable.vue            # 邮件列表表格
+│   ├── EmailTreeFilter.vue       # 文件树形筛选组件
+│   ├── EmailDetailPanel.vue      # 双栏邮件详情组件
+│   ├── AttachmentList.vue        # 附件列表组件
+│   ├── ImportBatchTable.vue      # 导入批次表格
+│   └── ErrorLogTable.vue         # 错误日志表格
+├── api/eml/                      # API接口
+│   ├── email.ts                  # 邮件相关API
+│   ├── import.ts                 # 导入相关API
+│   └── attachment.ts             # 附件相关API
+├── types/eml/                    # TypeScript类型定义
+│   ├── email.ts                  # 邮件相关类型
+│   ├── import.ts                 # 导入相关类型
+│   └── attachment.ts             # 附件相关类型
+└── stores/eml/                   # Pinia状态管理
+    ├── emailStore.ts             # 邮件状态管理
+    └── importStore.ts            # 导入状态管理
+```
+
+## 核心功能模块
+
+### 1. 邮件列表页面 (EmailListView.vue)
+- 分页表格展示邮件列表
+- 支持多维度搜索筛选：主题、发件人、收件人、日期范围、星标状态、原始路径
+- 文件树形结构浏览/筛选功能
+- 星标切换功能
+- 批量操作（删除等）
+- 导出功能
+
+### 2. 邮件详情页面 (EmailDetailView.vue)
+- **双栏对比布局**：左栏显示原始邮件，右栏预留翻译功能
+- 支持栏位展开/收起和宽度调整
+- HTML邮件安全渲染
+- 纯文本/HTML切换查看
+- 附件列表展示和下载
+- 邮件头信息完整展示
+
+### 3. 导入管理页面 (ImportManageView.vue)
+- ZIP文件上传组件
+- 导入进度实时显示
+- 导入批次历史记录
+- 批次状态监控（进行中、完成、部分失败）
+
+### 4. 关键组件开发要求
+
+#### EmailUploader.vue
+```typescript
+// 支持拖拽上传
+// 文件类型验证（仅ZIP）
+// 上传进度显示
+// 错误处理和用户反馈
+```
+
+#### EmailTable.vue
+```typescript
+// 高性能虚拟滚动（处理大数据量）
+// 自定义列配置
+// 排序和筛选
+// 行选择和批量操作
+// 星标状态实时切换
+```
+
+#### EmailTreeFilter.vue
+```typescript
+// 基于el-tree的文件路径筛选
+// 懒加载节点数据
+// 搜索功能
+// 多选和单选模式
+```
+
+#### EmailDetailPanel.vue
+```typescript
+// 双栏响应式布局
+// 拖拽调整栏宽
+// HTML内容安全渲染（防XSS）
+// 邮件头信息格式化显示
+```
+
+## API接口规范
+
+### 邮件管理API (/admin-api/tool/eml/)
+```typescript
+// 邮件列表查询
+GET /page
+// 邮件详情获取  
+GET /{id}
+// 星标切换
+PUT /{id}/toggle-star
+// 批量删除
+DELETE /batch
+// 附件下载
+GET /attachment/{attachmentId}/download
+```
+
+### 导入管理API (/admin-api/tool/eml/)
+```typescript
+// ZIP上传导入
+POST /upload-zip
+// 导入批次列表
+GET /import-batches
+// 导入错误日志
+GET /import-errors/{batchId}
+```
+
+## 数据类型定义
+
+### 核心数据模型
+```typescript
+interface EmailMessage {
+  id: number
+  messageId: string
+  subject: string
+  sender: string
+  recipients: string[]
+  ccRecipients?: string[]
+  bccRecipients?: string[]
+  sentDate: Date
+  receivedDate: Date
+  bodyText?: string
+  bodyHtml?: string
+  originalPath: string
+  isStarred: boolean
+  attachmentCount: number
+  importBatchId: number
+  createTime: Date
+}
+
+interface EmailAttachment {
+  id: number
+  emailId: number
+  fileName: string
+  contentType: string
+  fileSize: number
+  minioPath: string
+  downloadUrl: string
+}
+
+interface ImportBatch {
+  id: number
+  batchName: string
+  userId: number
+  status: 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'PARTIAL_SUCCESS'
+  totalFiles: number
+  successCount: number
+  failureCount: number
+  createTime: Date
+  completeTime?: Date
+}
+```
+
+## UI/UX设计要求
+
+### 1. 现代化界面设计
+- 遵循Element Plus设计规范
+- 响应式布局，适配桌面和平板
+- 深色/浅色主题支持
+- 流畅的动画效果
+
+### 2. 用户体验优化
+- 加载状态友好提示
+- 错误信息清晰展示
+- 操作确认和撤销机制
+- 键盘快捷键支持
+
+### 3. 性能优化要求
+- 虚拟滚动处理大列表
+- 图片懒加载
+- 组件按需加载
+- 接口请求缓存
+
+## 开发规范
+
+### 1. 代码规范
+- 使用TypeScript严格模式
+- 组件采用Composition API
+- Props和Emits明确类型定义
+- 统一的错误处理机制
+
+### 2. 命名规范
+```typescript
+// 组件命名：PascalCase
+EmailListView.vue
+EmailDetailPanel.vue
+
+// 函数命名：camelCase
+const fetchEmailList = () => {}
+const toggleEmailStar = () => {}
+
+// 常量命名：UPPER_SNAKE_CASE
+const MAX_FILE_SIZE = 100 * 1024 * 1024
+const SUPPORTED_FILE_TYPES = ['.zip']
+```
+
+### 3. 文件组织
+- 按功能模块分组
+- 相关文件就近放置
+- 公共组件和工具函数独立目录
+
+## 安全考虑
+
+### 1. HTML内容渲染
+```typescript
+// 使用DOMPurify清理HTML内容
+import DOMPurify from 'dompurify'
+
+const sanitizedHtml = DOMPurify.sanitize(emailBodyHtml)
+```
+
+### 2. 文件上传安全
+- 客户端文件类型验证
+- 文件大小限制
+- 上传进度监控
+
+### 3. 权限验证
+- 路由守卫验证用户权限
+- 接口调用前验证Token
+- 敏感操作二次确认
+
+## 测试要求
+
+### 1. 单元测试
+- 核心业务逻辑测试
+- 组件渲染测试
+- API接口Mock测试
+
+### 2. 集成测试
+- 用户操作流程测试
+- 文件上传功能测试
+- 错误场景处理测试
+
+## 部署配置
+
+### 1. 环境变量配置
+```typescript
+// .env.development
+VITE_API_BASE_URL=http://localhost:8080
+VITE_MINIO_BASE_URL=http://localhost:9000
+
+// .env.production  
+VITE_API_BASE_URL=https://api.yourdomain.com
+VITE_MINIO_BASE_URL=https://minio.yourdomain.com
+```
+
+### 2. Docker部署支持
+- 生产环境构建配置
+- Nginx反向代理配置
+- 静态资源CDN集成
+
+---
+
+## 开发指导原则
+
+1. **用户体验优先**：所有功能设计以用户使用便利性为核心
+2. **性能优化**：处理大数据量时保持界面流畅
+3. **错误处理**：友好的错误提示和恢复机制
+4. **可扩展性**：为未来翻译功能等扩展预留接口
+5. **安全性**：防范XSS攻击，安全处理用户上传内容
+
+记住：这是一个企业级邮件管理系统，要求高可用性、高性能和良好的用户体验。每个组件都应该经过充分测试，确保在各种场景下都能稳定运行。
+
+方总牛逼
