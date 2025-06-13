@@ -235,6 +235,38 @@ const remainingRouter: AppRouteRecordRaw[] = [
     }
   },
   {
+    path: '/eml',
+    component: Layout,
+    name: 'EmlManagement',
+    meta: {
+      hidden: true
+    },
+    children: [
+      {
+        path: 'email-management',
+        component: () => import('@/views/eml/EmailManagement.vue'),
+        name: 'EmailManagement',
+        meta: {
+          title: 'EML邮件管理',
+          icon: 'ep:message',
+          noCache: false
+        }
+      },
+      {
+        path: 'email-detail/:id',
+        component: () => import('@/views/eml/EmailDetail.vue'),
+        name: 'EmailDetail',
+        meta: {
+          title: '邮件详情',
+          noCache: true,
+          hidden: true,
+          canTo: true,
+          activeMenu: '/eml/email-management'
+        }
+      }
+    ]
+  },
+  {
     path: '/bpm',
     component: Layout,
     name: 'bpm',
