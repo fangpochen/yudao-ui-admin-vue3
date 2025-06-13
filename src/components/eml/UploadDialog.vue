@@ -120,11 +120,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Document, Delete } from '@element-plus/icons-vue'
 import { Dialog } from '@/components/Dialog'
-import { uploadZipFile } from '@/api/eml/import'
+import { uploadZipFile, getImportStatus } from '@/api/eml/import'
 import { formatFileSize } from '@/utils/eml'
 import type { ImportBatch } from '@/types/eml/import'
 
@@ -164,6 +164,9 @@ const uploadProgressText = ref('')
 const uploadResult = ref<UploadResult | null>(null)
 const isDragOver = ref(false)
 const uploadAbortController = ref<AbortController | null>(null)
+const isPolling = ref(false)
+const pollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const parseProgress = ref<ImportBatch | null>(null)
 
 // 配置常量
 const maxSizeMB = 100
@@ -173,6 +176,8 @@ const maxSizeBytes = maxSizeMB * 1024 * 1024
 const clearFile = () => {
   selectedFile.value = null
   uploadResult.value = null
+  parseProgress.value = null
+  stopPolling()
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -272,6 +277,9 @@ const handleUpload = async () => {
     }
 
     emit('upload-success', result.data)
+    
+    // 开始轮询解析状态
+    startPolling(result.data.id)
   } catch (error: any) {
     if (error.name === 'AbortError') {
       uploadResult.value = {
@@ -311,8 +319,154 @@ const handleClose = () => {
 
 const handleComplete = () => {
   clearFile()
+  stopPolling()
   dialogVisible.value = false
 }
+
+// 轮询相关方法
+const startPolling = (batchId: number) => {
+  if (isPolling.value) {
+    console.warn('轮询已在进行中，忽略重复启动')
+    return
+  }
+  
+  isPolling.value = true
+  uploadProgressText.value = '正在解析邮件...'
+  console.log('开始轮询状态, batchId:', batchId)
+  
+  let pollCount = 0
+  const maxPollCount = 150 // 最多轮询5分钟 (150 * 2s = 300s)
+  
+  const poll = async () => {
+    pollCount++
+    console.log(`第${pollCount}次轮询, batchId: ${batchId}`)
+    
+    // 防止无限轮询
+    if (pollCount > maxPollCount) {
+      console.error('轮询超时，强制停止')
+      stopPolling()
+             uploadResult.value = {
+         success: false,
+         message: '轮询超时',
+         description: '解析时间过长，请检查后端日志或重试',
+         data: parseProgress.value || undefined
+       }
+      uploading.value = false
+      return
+    }
+    try {
+      const result = await getImportStatus(batchId)
+      console.log('API返回原始数据:', result)
+      
+      // 安全地获取数据 - 处理不同的响应格式
+      const data = result.data || result
+      if (!data) {
+        console.error('API返回数据为空:', result)
+        throw new Error('API返回数据格式错误')
+      }
+      
+      parseProgress.value = data
+      
+      // 安全地解构数据
+      const status = data.status ?? 0
+      const totalFiles = data.totalFiles ?? 0
+      const successCount = data.successCount ?? 0
+      const failCount = data.failCount ?? 0
+      
+      console.log('轮询状态:', { status, totalFiles, successCount, failCount, batchId })
+      
+      // 检查是否完成 - 移到前面，避免无用的进度更新
+      if (status === 2 || status === 3 || status === 4) { // SUCCESS, PARTIAL_FAILED, FAILED
+        console.log('任务完成，停止轮询, status:', status)
+        stopPolling()
+        uploadProgress.value = 100
+        
+        // 处理特殊情况：totalFiles为0表示ZIP中没有EML文件
+        let finalDescription = ''
+        if (totalFiles === 0) {
+          finalDescription = 'ZIP文件中未找到.eml邮件文件，请检查文件内容'
+        } else if (status === 2) {
+          finalDescription = `成功解析 ${successCount} 个邮件文件`
+        } else if (status === 3) {
+          finalDescription = `成功解析 ${successCount} 个，失败 ${failCount} 个邮件文件`
+        } else {
+          finalDescription = '邮件解析过程中发生错误'
+        }
+        
+        // 更新最终结果
+        uploadResult.value = {
+          success: status !== 4 && totalFiles > 0, // totalFiles=0也应该算作问题
+          message: totalFiles === 0 ? '未找到邮件文件' : 
+                   status === 2 ? '解析完成！' : 
+                   status === 3 ? '部分解析成功' : '解析失败',
+          description: finalDescription,
+          data: data
+        }
+        
+        uploadProgressText.value = '解析完成'
+        uploading.value = false // 确保上传状态结束
+        return
+      }
+      
+      // 任务进行中，更新进度
+      if (totalFiles > 0) {
+        const processedCount = successCount + failCount
+        const progressPercent = Math.round((processedCount / totalFiles) * 100)
+        uploadProgress.value = Math.min(progressPercent, 99) // 防止显示100%但未完成
+        uploadProgressText.value = `解析中...已处理 ${processedCount}/${totalFiles} 个文件`
+      } else {
+        uploadProgressText.value = '正在扫描ZIP文件中的邮件...'
+      }
+      
+      // 继续轮询
+      if (isPolling.value) { // 额外检查轮询状态
+        pollingTimer.value = setTimeout(poll, 2000) // 每2秒轮询一次
+      }
+      
+    } catch (error: any) {
+      console.error('轮询状态失败:', error)
+      console.error('错误详情:', error.message, error.stack)
+      
+      // 连续失败3次就停止轮询
+      pollCount += 2 // 加重失败的计数
+      if (pollCount > maxPollCount - 10) {
+        console.error('轮询失败次数过多，停止轮询')
+        stopPolling()
+        uploadResult.value = {
+          success: false,
+          message: '轮询失败',
+          description: `网络错误或服务异常: ${error.message}`,
+          data: parseProgress.value || undefined
+        }
+        uploading.value = false
+        return
+      }
+      
+      // 轮询失败时继续重试，但降低频率
+      if (isPolling.value) {
+        console.log('5秒后重试轮询...')
+        pollingTimer.value = setTimeout(poll, 5000) // 错误时每5秒轮询一次
+      }
+    }
+  }
+  
+  // 立即执行第一次轮询
+  poll()
+}
+
+const stopPolling = () => {
+  console.log('停止轮询')
+  isPolling.value = false
+  if (pollingTimer.value) {
+    clearTimeout(pollingTimer.value)
+    pollingTimer.value = null
+  }
+}
+
+// 组件销毁时清理轮询
+onBeforeUnmount(() => {
+  stopPolling()
+})
 </script>
 
 <style lang="scss" scoped>

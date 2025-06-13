@@ -6,13 +6,14 @@
       <div class="header-actions">
         <el-button
           @click="toggleStar"
-          :icon="emailDetail.isStarred ? StarFilled : Star"
-          :class="{ 'star-active': emailDetail.isStarred }"
+          :icon="emailDetail?.isStarred ? StarFilled : Star"
+          :class="{ 'star-active': emailDetail?.isStarred }"
           :loading="starLoading"
+          :disabled="!emailDetail?.id"
         >
-          {{ emailDetail.isStarred ? '取消星标' : '标记星标' }}
+          {{ emailDetail?.isStarred ? '取消星标' : '标记星标' }}
         </el-button>
-        <el-button @click="deleteEmail" type="danger" :icon="Delete"> 删除邮件 </el-button>
+        <el-button @click="deleteEmail" type="danger" :icon="Delete" :disabled="!emailDetail?.id"> 删除邮件 </el-button>
       </div>
     </div>
 
@@ -22,13 +23,13 @@
     </div>
 
     <!-- 邮件内容 -->
-    <div v-else-if="emailDetail.id" class="email-content">
+    <div v-else-if="emailDetail?.id" class="email-content">
       <!-- 邮件头信息 -->
       <el-card class="email-header-card">
         <div class="email-meta">
           <h2 class="email-subject">
-            {{ emailDetail.subject || '(无主题)' }}
-            <el-icon v-if="emailDetail.isStarred" class="star-icon">
+            {{ emailDetail?.subject || '(无主题)' }}
+            <el-icon v-if="emailDetail?.isStarred" class="star-icon">
               <StarFilled />
             </el-icon>
           </h2>
@@ -145,6 +146,16 @@
                       :icon="ArrowLeft"
                       v-if="!rightCollapsed"
                     />
+                    <!-- 当翻译区域被隐藏时，显示打开翻译的按钮 -->
+                    <el-button
+                      @click="rightCollapsed = false"
+                      size="small"
+                      :icon="ArrowRight"
+                      type="primary"
+                      v-if="rightCollapsed"
+                    >
+                      打开翻译
+                    </el-button>
                   </div>
                 </div>
               </template>
@@ -165,13 +176,30 @@
             </el-card>
           </el-col>
 
-          <!-- 右栏：翻译内容（预留） -->
+          <!-- 右栏：翻译内容 -->
           <el-col :span="rightCollapsed ? 0 : leftCollapsed ? 24 : 12" v-show="!rightCollapsed">
             <el-card class="content-card translation-card">
               <template #header>
                 <div class="card-header">
-                  <span>翻译内容（预留功能）</span>
+                  <span>翻译内容</span>
                   <div class="header-controls">
+                    <el-button-group size="small">
+                      <el-button 
+                        @click="toggleTranslation" 
+                        :type="translationEnabled ? 'primary' : 'default'"
+                        :loading="translating"
+                        size="small"
+                      >
+                        {{ translationEnabled ? '已翻译' : '开始翻译' }}
+                      </el-button>
+                      <el-button 
+                        @click="clearTranslation" 
+                        :disabled="!translationEnabled"
+                        size="small"
+                      >
+                        清除
+                      </el-button>
+                    </el-button-group>
                     <el-button
                       @click="rightCollapsed = true"
                       size="small"
@@ -182,10 +210,27 @@
                 </div>
               </template>
 
-              <div class="translation-placeholder">
-                <el-empty description="翻译功能开发中..." :image-size="100">
-                  <el-button type="primary" disabled> 开始翻译 </el-button>
-                </el-empty>
+              <div class="content-display">
+                <!-- 翻译结果显示 -->
+                <div v-if="translationEnabled && translatedContent" class="translation-result">
+                  <div v-if="contentType === 'html'" v-html="sanitizeHtml(translatedContent)" class="html-content"></div>
+                  <pre v-else class="text-content">{{ translatedContent }}</pre>
+                </div>
+                
+                <!-- 翻译中状态 -->
+                <div v-else-if="translating" class="translation-loading">
+                  <el-skeleton :rows="8" animated />
+                  <div class="loading-text">正在翻译中，请稍候...</div>
+                </div>
+                
+                <!-- 未开始翻译状态 -->
+                <div v-else class="translation-placeholder">
+                  <el-empty description="点击开始翻译按钮进行内容翻译" :image-size="100">
+                    <el-button type="primary" @click="toggleTranslation"> 
+                      开始翻译 
+                    </el-button>
+                  </el-empty>
+                </div>
               </div>
             </el-card>
           </el-col>
@@ -301,10 +346,33 @@ const router = useRouter()
 const loading = ref(true)
 const starLoading = ref(false)
 const downloadingAll = ref(false)
-const emailDetail = ref<EmailMessage>({} as EmailMessage)
+const emailDetail = ref<EmailMessage>({
+  id: 0,
+  messageId: '',
+  importBatchId: 0,
+  subject: '',
+  sender: '',
+  recipients: [],
+  ccRecipients: [],
+  bccRecipients: [],
+  contentText: '',
+  contentHtml: '',
+  originalPath: '',
+  isStarred: false,
+  attachmentCount: 0,
+  attachments: [],
+  sendDate: '',
+  receivedDate: '',
+  createTime: ''
+} as EmailMessage)
 const contentType = ref<'html' | 'text'>('html')
 const leftCollapsed = ref(false)
-const rightCollapsed = ref(false)
+const rightCollapsed = ref(false) // 确保翻译区域默认显示
+
+// 翻译功能
+const translationEnabled = ref(false)
+const translating = ref(false)
+const translatedContent = ref('')
 
 // Methods
 const getEmailDetail = async () => {
@@ -316,18 +384,51 @@ const getEmailDetail = async () => {
       throw new Error('邮件ID无效')
     }
 
-    const { data } = await getEmailMessage(emailId)
+    const response = await getEmailMessage(emailId)
+    console.log('API返回原始数据 (邮件详情):', response)
+
+    // 安全地获取数据 - 处理不同的响应格式
+    const data = response.data || response
+    if (!data || !data.id) {
+      console.error('API返回数据为空或无效:', response)
+      throw new Error('邮件数据不存在')
+    }
+
     emailDetail.value = data
 
-    // 设置默认内容类型
+    // 安全地设置默认内容类型
     if (data.contentHtml) {
       contentType.value = 'html'
     } else if (data.contentText) {
       contentType.value = 'text'
     }
+
+    console.log('邮件详情加载成功:', data.id, data.subject)
   } catch (error: any) {
     console.error('Get email detail error:', error)
+    console.error('错误详情:', error.message, error.stack)
     ElMessage.error('获取邮件详情失败：' + (error.message || '未知错误'))
+    
+    // 重置为默认状态
+    emailDetail.value = {
+      id: 0,
+      messageId: '',
+      importBatchId: 0,
+      subject: '',
+      sender: '',
+      recipients: [],
+      ccRecipients: [],
+      bccRecipients: [],
+      contentText: '',
+      contentHtml: '',
+      originalPath: '',
+      isStarred: false,
+      attachmentCount: 0,
+      attachments: [],
+      sendDate: '',
+      receivedDate: '',
+      createTime: ''
+    } as EmailMessage
   } finally {
     loading.value = false
   }
@@ -370,7 +471,7 @@ const deleteEmail = async () => {
   }
 }
 
-const downloadAttachment = async (attachment: EmailAttachment) => {
+const downloadAttachment = async (attachment: EmailAttachment & { downloading?: boolean }) => {
   try {
     attachment.downloading = true
     const blob = await downloadAttachmentApi(attachment.id)
@@ -416,6 +517,48 @@ const expandRight = () => {
 const resetLayout = () => {
   leftCollapsed.value = false
   rightCollapsed.value = false
+}
+
+// 翻译相关方法
+const toggleTranslation = async () => {
+  if (translationEnabled.value) {
+    // 如果已翻译，直接返回
+    return
+  }
+  
+  if (!emailDetail.value?.contentText && !emailDetail.value?.contentHtml) {
+    ElMessage.warning('没有可翻译的内容')
+    return
+  }
+  
+  translating.value = true
+  
+  try {
+    // 模拟翻译过程
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // 这里后续可以集成真实的翻译API
+    const originalContent = contentType.value === 'html' 
+      ? emailDetail.value?.contentHtml 
+      : emailDetail.value?.contentText
+    
+    // 简单的模拟翻译（实际应该调用翻译服务）
+    translatedContent.value = `[翻译结果] ${originalContent}`
+    translationEnabled.value = true
+    
+    ElMessage.success('翻译完成')
+  } catch (error) {
+    console.error('翻译失败:', error)
+    ElMessage.error('翻译失败，请重试')
+  } finally {
+    translating.value = false
+  }
+}
+
+const clearTranslation = () => {
+  translatedContent.value = ''
+  translationEnabled.value = false
+  ElMessage.success('已清除翻译内容')
 }
 
 const goBack = () => {
@@ -531,22 +674,28 @@ onMounted(() => {
         min-height: 400px;
       }
 
-      .content-card {
-        height: 600px;
+              .content-card {
+          height: 700px;
 
-        .card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
+          .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
 
-        .content-display {
-          height: calc(100% - 60px);
-          overflow-y: auto;
+          .content-display {
+            height: 600px; /* 固定高度确保滚动 */
+            overflow-y: auto;
+            overflow-x: hidden;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            background: #fafafa;
 
           .html-content {
             word-break: break-word;
             line-height: 1.6;
+            padding: 16px;
+            min-height: 800px; /* 最小高度确保能滚动 */
 
             :deep(img) {
               max-width: 100%;
@@ -569,6 +718,8 @@ onMounted(() => {
             font-family: 'Courier New', monospace;
             line-height: 1.5;
             margin: 0;
+            padding: 16px;
+            min-height: 800px; /* 最小高度确保能滚动 */
             color: var(--el-text-color-regular);
           }
 
@@ -586,7 +737,60 @@ onMounted(() => {
           display: flex;
           align-items: center;
           justify-content: center;
-          height: calc(100% - 60px);
+          height: 600px; /* 固定高度与其他区域保持一致 */
+        }
+
+        .translation-result {
+          height: 600px; /* 固定高度确保滚动 */
+          overflow-y: auto;
+
+          .html-content {
+            word-break: break-word;
+            line-height: 1.6;
+            padding: 16px;
+            min-height: 800px; /* 最小高度确保能滚动 */
+
+            :deep(img) {
+              max-width: 100%;
+              height: auto;
+            }
+
+            :deep(table) {
+              max-width: 100%;
+              border-collapse: collapse;
+            }
+
+            :deep(a) {
+              color: var(--el-color-primary);
+            }
+          }
+
+          .text-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: 'Courier New', monospace;
+            line-height: 1.5;
+            margin: 0;
+            padding: 16px;
+            min-height: 800px; /* 最小高度确保能滚动 */
+            color: var(--el-text-color-regular);
+          }
+        }
+
+        .translation-loading {
+          text-align: center;
+          padding: 20px;
+          height: 600px; /* 固定高度与其他区域保持一致 */
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+
+          .loading-text {
+            margin-top: 16px;
+            color: #666;
+            font-size: 14px;
+          }
         }
       }
 

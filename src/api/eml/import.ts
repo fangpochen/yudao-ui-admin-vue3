@@ -98,6 +98,15 @@ export async function getImportProgress(batchId: number) {
 }
 
 /**
+ * 获取导入状态
+ * @param batchId 批次ID
+ * @returns 导入状态
+ */
+export async function getImportStatus(batchId: number) {
+  return await request.get({ url: `${API_BASE}/import/status/${batchId}` })
+}
+
+/**
  * 取消正在进行的导入
  * @param batchId 批次ID
  * @returns 操作结果

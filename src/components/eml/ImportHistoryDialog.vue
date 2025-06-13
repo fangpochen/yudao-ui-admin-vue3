@@ -238,13 +238,32 @@ const getImportBatchList = async () => {
       ...queryForm
     }
 
-    const { data } = await getImportBatchPage(params)
+    const response = await getImportBatchPage(params)
+    console.log('API返回原始数据 (批次列表):', response)
 
-    importBatches.value = data.list || []
-    pagination.total = data.total || 0
+    // 安全地获取数据 - 处理不同的响应格式
+    const data = response.data || response
+    if (!data) {
+      console.error('API返回数据为空:', response)
+      importBatches.value = []
+      pagination.total = 0
+      return
+    }
+
+    // 安全地获取列表数据
+    importBatches.value = data.list || data.records || []
+    pagination.total = data.total || data.totalCount || 0
+
+    console.log('解析后的数据:', { 
+      list: importBatches.value, 
+      total: pagination.total 
+    })
   } catch (error: any) {
     console.error('Get import batch list error:', error)
+    console.error('错误详情:', error.message, error.stack)
     ElMessage.error('获取导入历史失败：' + (error.message || '未知错误'))
+    importBatches.value = []
+    pagination.total = 0
   } finally {
     loading.value = false
   }

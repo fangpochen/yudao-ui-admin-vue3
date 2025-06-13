@@ -48,10 +48,12 @@ export async function toggleEmailStar(id: number) {
  * 批量删除邮件
  * @param ids 邮件ID数组
  * @returns 操作结果
- * @deprecated 后端接口尚未实现
+ * @deprecated 后端接口尚未实现，请使用单个删除
  */
 export async function deleteEmailMessages(ids: number[]) {
-  return await request.delete({ url: `${API_BASE}/batch`, data: ids })
+  // 批量调用单个删除接口
+  const promises = ids.map(id => deleteEmailMessage(id))
+  return await Promise.all(promises)
 }
 
 /**
@@ -67,10 +69,9 @@ export async function deleteEmailMessage(id: number) {
  * 下载附件
  * @param attachmentId 附件ID
  * @returns 文件流
- * @deprecated 后端接口尚未实现
  */
 export async function downloadAttachment(attachmentId: number) {
-  return await request.download({ url: `${API_BASE}/attachment/${attachmentId}/download` })
+  return await request.download({ url: `${API_BASE}/attachment/download/${attachmentId}` })
 }
 
 /**
