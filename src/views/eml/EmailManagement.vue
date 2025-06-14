@@ -127,8 +127,8 @@
     </el-card>
 
     <!-- 统计信息 -->
-    <el-row :gutter="20" class="stats-row">
-      <el-col :span="6">
+    <el-row :gutter="15" class="stats-row">
+      <el-col :span="5">
         <el-card class="stats-card">
           <div class="stats-item">
             <div class="stats-value">{{ stats.totalCount }}</div>
@@ -136,7 +136,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="5">
         <el-card class="stats-card">
           <div class="stats-item">
             <div class="stats-value star-count">{{ stats.starredCount }}</div>
@@ -144,7 +144,15 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="5">
+        <el-card class="stats-card">
+          <div class="stats-item">
+            <div class="stats-value attachment-count">{{ stats.withAttachmentsCount }}</div>
+            <div class="stats-label">有附件邮件</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="5">
         <el-card class="stats-card">
           <div class="stats-item">
             <div class="stats-value">{{ stats.todayCount }}</div>
@@ -152,7 +160,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card class="stats-card">
           <div class="stats-item">
             <div class="stats-value">{{ stats.weekCount }}</div>
@@ -302,6 +310,7 @@ const sortInfo = reactive({
 const stats = reactive({
   totalCount: 0,
   starredCount: 0,
+  withAttachmentsCount: 0,
   todayCount: 0,
   weekCount: 0,
   monthCount: 0
@@ -348,10 +357,32 @@ const getEmailList = async () => {
 
 const getStatistics = async () => {
   try {
-    const { data } = await getEmailStatistics()
-    Object.assign(stats, data)
+    console.log('开始获取统计信息...')
+    const response = await getEmailStatistics()
+    console.log('API完整响应:', response)
+    
+    // 直接使用response.data，因为Yudao框架的CommonResult格式是这样的
+    const data = response.data || response
+    console.log('解构出的data:', data)
+    console.log('当前stats对象:', JSON.stringify(stats))
+    
+    if (data && typeof data === 'object') {
+      // 手动更新每个字段，确保响应式更新
+      stats.totalCount = data.totalCount || 0
+      stats.starredCount = data.starredCount || 0  
+      stats.withAttachmentsCount = data.withAttachmentsCount || 0
+      stats.todayCount = data.todayCount || 0
+      stats.weekCount = data.weekCount || 0
+      stats.monthCount = data.monthCount || 0
+      
+      console.log('更新后的stats:', JSON.stringify(stats))
+      console.log('页面应该显示 totalCount:', stats.totalCount)
+    } else {
+      console.warn('Invalid statistics data received:', data)
+    }
   } catch (error: any) {
     console.error('Get statistics error:', error)
+    ElMessage.error('获取统计信息失败：' + (error.message || '网络异常'))
   }
 }
 
@@ -613,6 +644,10 @@ onMounted(() => {
 
           &.star-count {
             color: var(--el-color-warning);
+          }
+
+          &.attachment-count {
+            color: var(--el-color-success);
           }
         }
 
